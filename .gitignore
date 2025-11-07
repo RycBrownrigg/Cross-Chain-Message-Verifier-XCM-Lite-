@@ -28,6 +28,10 @@ rustfmt.toml
 *.cursor-tmp
 *.cursor-session
 
+# JetBrains
+.idea/       
+*.iml
+
 
 # ------------------------
 # macOS system files

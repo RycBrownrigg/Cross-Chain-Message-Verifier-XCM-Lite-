@@ -1,10 +1,12 @@
 pub mod config;
 pub mod crypto;
 pub mod domain;
+pub mod processor;
 pub mod state;
 
 use config::AppConfig;
 use crypto::KeyRegistry;
+use processor::{run_relay_loop, MessageProcessor};
 use state::ServiceState;
 use thiserror::Error;
 
@@ -22,6 +24,11 @@ pub async fn run() -> Result<(), ServiceError> {
     let config = AppConfig::load()?;
     let state = ServiceState::initialize(&config.parachains)?;
     let key_registry = KeyRegistry::from_config(&config.parachains)?;
+    let (_processor, relay_rx) = MessageProcessor::new(
+        state.clone(),
+        key_registry.clone(),
+        &config.parachains.xcm_version,
+    );
 
     tracing::info!(
         target: "xcm_lite",
@@ -32,6 +39,8 @@ pub async fn run() -> Result<(), ServiceError> {
         keys = key_registry.len(),
         "configuration and state initialised"
     );
+
+    tokio::spawn(run_relay_loop(state.clone(), relay_rx));
 
     // TODO: continue wiring subsystems before starting HTTP server
 
