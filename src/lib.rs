@@ -1,9 +1,32 @@
-use std::error::Error;
+pub mod config;
+pub mod state;
 
-pub async fn run() -> Result<(), Box<dyn Error>> {
-    tracing::info!(target: "xcm_lite", "Starting Cross-Chain Message Verifier (XCM Lite) service");
+use config::AppConfig;
+use state::ServiceState;
+use thiserror::Error;
 
-    // TODO: initialize configuration, state, and HTTP server
+#[derive(Debug, Error)]
+pub enum ServiceError {
+    #[error(transparent)]
+    Config(#[from] config::ConfigError),
+    #[error(transparent)]
+    State(#[from] state::StateInitError),
+}
+
+pub async fn run() -> Result<(), ServiceError> {
+    let config = AppConfig::load()?;
+    let state = ServiceState::initialize(&config.parachains)?;
+
+    tracing::info!(
+        target: "xcm_lite",
+        host = %config.server.host,
+        port = config.server.port,
+        parachains = state.parachain_count(),
+        xcm_version = %config.parachains.xcm_version,
+        "configuration and state initialised"
+    );
+
+    // TODO: continue wiring subsystems before starting HTTP server
 
     Ok(())
 }
