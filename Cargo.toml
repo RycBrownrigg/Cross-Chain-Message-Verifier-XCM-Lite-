@@ -17,3 +17,5 @@ config = "0.14"
 utoipa = { version = "4", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "4", features = ["axum"] }
 thiserror = "1"
+hex = "0.4"
+sha2 = "0.10"
