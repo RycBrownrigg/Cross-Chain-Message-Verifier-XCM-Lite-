@@ -1,10 +1,12 @@
-use tokio::sync::mpsc::{self, Receiver, Sender};
+use std::sync::Arc;
 
+use tokio::sync::mpsc::{self, Receiver, Sender};
 use uuid::Uuid;
 
 use crate::{
     crypto::KeyRegistry,
     domain::{MessageEnvelope, MessageValidationError},
+    execution::ExecutionEngine,
     state::{MessageRecord, MessageStatus, ServiceState},
 };
 
@@ -14,6 +16,7 @@ const MAX_HOPS: usize = 3;
 /// Message stored in the processing queue.
 #[derive(Debug)]
 pub struct QueuedMessage {
+    pub message_id: String,
     pub envelope: MessageEnvelope,
     pub raw_payload: Vec<u8>,
 }
@@ -77,6 +80,7 @@ impl MessageProcessor {
 
         self.sender
             .send(QueuedMessage {
+                message_id,
                 envelope,
                 raw_payload,
             })
@@ -99,21 +103,28 @@ pub enum ProcessorError {
 }
 
 /// Run the relay loop, routing queued messages through simulated hops.
-pub async fn run_relay_loop(state: ServiceState, mut receiver: Receiver<QueuedMessage>) {
-    while let Some(mut queued) = receiver.recv().await {
-        let message_id = queued
-            .envelope
-            .message_id
-            .clone()
-            .unwrap_or_else(|| Uuid::new_v4().to_string());
+pub async fn run_relay_loop(
+    state: ServiceState,
+    engine: Arc<dyn ExecutionEngine>,
+    mut receiver: Receiver<QueuedMessage>,
+) {
+    while let Some(queued) = receiver.recv().await {
+        let message_id = queued.message_id.clone();
+        let hops = vec![queued.envelope.sender_para, queued.envelope.dest_para];
 
-        let result = process_single_message(&state, &mut queued);
-
-        let new_status = match result {
-            Ok(()) => MessageStatus::Relayed,
-            Err(err) => MessageStatus::Failed {
-                error: err.to_string(),
-            },
+        let status = if hops.len() > MAX_HOPS {
+            MessageStatus::Failed {
+                error: "maximum hop count exceeded".to_string(),
+            }
+        } else {
+            match engine.execute(&queued.envelope) {
+                Ok(outcome) => MessageStatus::Executed {
+                    outcome: outcome.summary(),
+                },
+                Err(err) => MessageStatus::Failed {
+                    error: err.to_string(),
+                },
+            }
         };
 
         let mut messages = match state.messages.write() {
@@ -122,71 +133,10 @@ pub async fn run_relay_loop(state: ServiceState, mut receiver: Receiver<QueuedMe
         };
 
         if let Some(record) = messages.get_mut(&message_id) {
-            record.status = new_status;
-        } else {
-            messages.insert(
-                message_id,
-                MessageRecord {
-                    status: new_status,
-                    hops: vec![],
-                },
-            );
-        }
-    }
-}
-
-fn process_single_message(
-    state: &ServiceState,
-    queued: &mut QueuedMessage,
-) -> Result<(), RelayError> {
-    let mut hops = Vec::new();
-    hops.push(queued.envelope.sender_para);
-    hops.push(queued.envelope.dest_para);
-
-    if hops.len() > MAX_HOPS {
-        return Err(RelayError::HopLimitExceeded);
-    }
-
-    {
-        let mut messages = state
-            .messages
-            .write()
-            .map_err(|_| RelayError::StatePoisoned)?;
-        let message_id = queued
-            .envelope
-            .message_id
-            .clone()
-            .unwrap_or_else(|| Uuid::new_v4().to_string());
-        if let Some(record) = messages.get_mut(&message_id) {
+            record.status = status;
             record.hops = hops.clone();
+        } else {
+            messages.insert(message_id, MessageRecord { status, hops });
         }
     }
-
-    let mut dest_state = state
-        .parachains
-        .write()
-        .map_err(|_| RelayError::StatePoisoned)?;
-
-    let Some(parachain) = dest_state.get_mut(&queued.envelope.dest_para) else {
-        return Err(RelayError::UnknownDestination {
-            para_id: queued.envelope.dest_para,
-        });
-    };
-
-    parachain.logs.push(format!(
-        "Received message with {} instructions",
-        queued.envelope.instructions.len()
-    ));
-
-    Ok(())
-}
-
-#[derive(Debug, thiserror::Error)]
-enum RelayError {
-    #[error("destination parachain {para_id} not found")]
-    UnknownDestination { para_id: u32 },
-    #[error("state lock poisoned")]
-    StatePoisoned,
-    #[error("maximum hop count exceeded")]
-    HopLimitExceeded,
 }

@@ -1,11 +1,15 @@
 pub mod config;
 pub mod crypto;
 pub mod domain;
+pub mod execution;
 pub mod processor;
 pub mod state;
 
+use std::sync::Arc;
+
 use config::AppConfig;
 use crypto::KeyRegistry;
+use execution::DefaultExecutionEngine;
 use processor::{run_relay_loop, MessageProcessor};
 use state::ServiceState;
 use thiserror::Error;
@@ -29,6 +33,7 @@ pub async fn run() -> Result<(), ServiceError> {
         key_registry.clone(),
         &config.parachains.xcm_version,
     );
+    let execution_engine = Arc::new(DefaultExecutionEngine::new(state.clone()));
 
     tracing::info!(
         target: "xcm_lite",
@@ -40,7 +45,11 @@ pub async fn run() -> Result<(), ServiceError> {
         "configuration and state initialised"
     );
 
-    tokio::spawn(run_relay_loop(state.clone(), relay_rx));
+    tokio::spawn(run_relay_loop(
+        state.clone(),
+        execution_engine.clone(),
+        relay_rx,
+    ));
 
     // TODO: continue wiring subsystems before starting HTTP server
 
