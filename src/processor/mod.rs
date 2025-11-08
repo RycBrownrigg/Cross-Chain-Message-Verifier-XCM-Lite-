@@ -34,17 +34,15 @@ impl MessageProcessor {
         state: ServiceState,
         keys: KeyRegistry,
         configured_version: impl Into<String>,
-    ) -> (Self, Receiver<QueuedMessage>) {
+    ) -> (Arc<Self>, Receiver<QueuedMessage>) {
         let (sender, receiver) = mpsc::channel(128);
-        (
-            Self {
-                state,
-                keys,
-                configured_version: configured_version.into(),
-                sender,
-            },
-            receiver,
-        )
+        let processor = Arc::new(Self {
+            state,
+            keys,
+            configured_version: configured_version.into(),
+            sender,
+        });
+        (processor, receiver)
     }
 
     /// Validate message payload, ensure the signature is correct, and enqueue for relay.
@@ -53,7 +51,7 @@ impl MessageProcessor {
         envelope: MessageEnvelope,
         raw_payload: Vec<u8>,
         signature: &[u8],
-    ) -> Result<(), ProcessorError> {
+    ) -> Result<String, ProcessorError> {
         envelope.validate(&self.configured_version)?;
         self.keys
             .verify_signature(envelope.sender_para, &raw_payload, signature)?;
@@ -78,14 +76,19 @@ impl MessageProcessor {
             );
         }
 
+        let response_id = message_id.clone();
+        let queued = QueuedMessage {
+            message_id,
+            envelope,
+            raw_payload,
+        };
+
         self.sender
-            .send(QueuedMessage {
-                message_id,
-                envelope,
-                raw_payload,
-            })
+            .send(queued)
             .await
-            .map_err(|_| ProcessorError::ChannelClosed)
+            .map_err(|_| ProcessorError::ChannelClosed)?;
+
+        Ok(response_id)
     }
 }
 

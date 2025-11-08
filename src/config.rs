@@ -1,5 +1,5 @@
 use config::{Config, ConfigError as RawConfigError, Environment, File};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// Result alias for configuration loading.
@@ -15,7 +15,7 @@ pub enum ConfigError {
 }
 
 /// Root configuration for the XCM Lite service.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct AppConfig {
     pub server: ServerConfig,
@@ -59,7 +59,7 @@ impl AppConfig {
 }
 
 /// HTTP server configuration.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct ServerConfig {
     pub host: String,
@@ -76,7 +76,7 @@ impl Default for ServerConfig {
 }
 
 /// Configuration for the simulated parachain environment.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct ParachainConfig {
     pub count: u32,
@@ -123,7 +123,7 @@ impl ParachainConfig {
 }
 
 /// Configuration for pre-defined parachain keypairs.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ParachainKeyConfig {
     pub para_id: u32,
     pub seed_phrase: Option<String>,

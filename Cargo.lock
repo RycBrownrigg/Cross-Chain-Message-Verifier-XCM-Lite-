@@ -2141,6 +2141,7 @@ dependencies = [
  "config",
  "ed25519-dalek",
  "hex",
+ "hyper 1.7.0",
  "parity-scale-codec",
  "rand",
  "serde",

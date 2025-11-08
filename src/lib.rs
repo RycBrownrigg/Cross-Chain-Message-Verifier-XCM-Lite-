@@ -1,3 +1,4 @@
+pub mod api;
 pub mod config;
 pub mod crypto;
 pub mod domain;
@@ -7,9 +8,10 @@ pub mod state;
 
 use std::sync::Arc;
 
+use api::{router as build_router, ApiContext};
 use config::AppConfig;
 use crypto::KeyRegistry;
-use execution::DefaultExecutionEngine;
+use execution::{DefaultExecutionEngine, ExecutionEngine};
 use processor::{run_relay_loop, MessageProcessor};
 use state::ServiceState;
 use thiserror::Error;
@@ -22,18 +24,23 @@ pub enum ServiceError {
     State(#[from] state::StateInitError),
     #[error(transparent)]
     Crypto(#[from] crypto::CryptoError),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Server(#[from] hyper::Error),
 }
 
 pub async fn run() -> Result<(), ServiceError> {
-    let config = AppConfig::load()?;
+    let config = Arc::new(AppConfig::load()?);
     let state = ServiceState::initialize(&config.parachains)?;
     let key_registry = KeyRegistry::from_config(&config.parachains)?;
-    let (_processor, relay_rx) = MessageProcessor::new(
+    let (processor, relay_rx) = MessageProcessor::new(
         state.clone(),
         key_registry.clone(),
         &config.parachains.xcm_version,
     );
-    let execution_engine = Arc::new(DefaultExecutionEngine::new(state.clone()));
+    let execution_engine: Arc<dyn ExecutionEngine> =
+        Arc::new(DefaultExecutionEngine::new(state.clone()));
 
     tracing::info!(
         target: "xcm_lite",
@@ -51,7 +58,17 @@ pub async fn run() -> Result<(), ServiceError> {
         relay_rx,
     ));
 
-    // TODO: continue wiring subsystems before starting HTTP server
+    let app = build_router(ApiContext {
+        config: config.clone(),
+        state: state.clone(),
+        processor: processor.clone(),
+    });
+
+    let addr = format!("{}:{}", config.server.host, config.server.port);
+    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    tracing::info!(target: "xcm_lite", %addr, "HTTP server listening");
+
+    axum::serve(listener, app).await?;
 
     Ok(())
 }

@@ -20,3 +20,4 @@ thiserror = "1"
 hex = "0.4"
 sha2 = "0.10"
 uuid = { version = "1", features = ["v4"] }
+hyper = { version = "1", features = ["server"] }

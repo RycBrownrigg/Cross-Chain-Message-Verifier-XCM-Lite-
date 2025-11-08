@@ -3,6 +3,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use serde::Serialize;
 use thiserror::Error;
 
 use crate::config::ParachainConfig;
@@ -56,7 +57,7 @@ pub struct ParachainState {
 }
 
 /// Record tracking the lifecycle of a submitted XCM message.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct MessageRecord {
     pub status: MessageStatus,
     pub hops: Vec<u32>,
@@ -72,7 +73,8 @@ impl Default for MessageRecord {
 }
 
 /// High-level message processing status values.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "status", rename_all = "camelCase")]
 pub enum MessageStatus {
     Pending,
     Relayed,
